@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chunked File Upload</title>
+</head>
+<body>
+    <input type="file" id="fileInput">
+    <button onclick="uploadFile()">Upload</button>
+
+    <script>
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
+
+        function uploadFile() {
+            const file = document.getElementById('fileInput').files[0];
+            if (!file) {
+                alert("Please select a file");
+                return;
+            }
+
+            // Step 1: Check already uploaded chunks
+            checkUploadedChunks(file.name)
+                .then(uploadedChunks => {
+                    let start = 0;
+                    let end = CHUNK_SIZE;
+                    let chunkIndex = 0;
+
+                    // Step 2: Upload each chunk
+                    function uploadNextChunk() {
+                        if (start >= file.size) {
+                            // Step 3: Notify server to merge the file
+                            mergeFile(file.name);
+                            alert('Upload and merge complete!');
+                            return;
+                        }
+
+                        if (uploadedChunks.includes(chunkIndex.toString())) {
+                            console.log(`Chunk ${chunkIndex} already uploaded, skipping`);
+                            start = end;
+                            end = start + CHUNK_SIZE;
+                            chunkIndex++;
+                            uploadNextChunk();
+                        } else {
+                            const chunk = file.slice(start, end);
+                            uploadChunk(chunk, file.name, chunkIndex)
+                                .then(() => {
+                                    start = end;
+                                    end = start + CHUNK_SIZE;
+                                    chunkIndex++;
+                                    uploadNextChunk();
+                                });
+                        }
+                    }
+
+                    uploadNextChunk();
+                });
+        }
+
+        function uploadChunk(chunk, fileName, chunkIndex) {
+            const formData = new FormData();
+            formData.append('chunk', chunk);
+            formData.append('fileName', fileName);
+            formData.append('chunkIndex', chunkIndex);
+
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/upload', true);
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        resolve(JSON.parse(xhr.responseText));
+                    } else {
+                        reject(new Error('Upload failed'));
+                    }
+                };
+
+                xhr.onerror = function() {
+                    reject(new Error('Upload failed'));
+                };
+
+                xhr.send(formData);
+            });
+        }
+
+        function checkUploadedChunks(fileName) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('GET', `/checkChunks?fileName=${fileName}`, true);
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        resolve(JSON.parse(xhr.responseText));
+                    } else {
+                        reject(new Error('Failed to check uploaded chunks'));
+                    }
+                };
+
+                xhr.onerror = function() {
+                    reject(new Error('Failed to check uploaded chunks'));
+                };
+
+                xhr.send();
+            });
+        }
+
+        function mergeFile(fileName) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/merge', true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        resolve(JSON.parse(xhr.responseText));
+                    } else {
+                        reject(new Error('Merge failed'));
+                    }
+                };
+
+                xhr.onerror = function() {
+                    reject(new Error('Merge failed'));
+                };
+
+                xhr.send(JSON.stringify({ fileName: fileName }));
+            });
+        }
+    </script>
+</body>
+</html>
